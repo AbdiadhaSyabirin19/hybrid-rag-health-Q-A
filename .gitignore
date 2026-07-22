@@ -15,13 +15,11 @@ __pycache__/
 # Environment variables (Sangat penting agar tidak membocorkan API key/config privat)
 .env
 
-# File Data Besar (GitHub menolak file > 100MB, CSV Anda berukuran >140MB)
+# File Data Besar & Dokumen Lokal (Folder data)
+data/
 *.csv
 *.xlsx
-data/artikel_kesehatan.csv
 
 # Folder database vektor lokal Qdrant
 qdrant_storage/
 
-# Checkpoint sementara
-data/checkpoint.json
