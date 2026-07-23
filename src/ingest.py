@@ -16,7 +16,6 @@ from src import config
 # Variabel global untuk mendeteksi permintaan berhenti
 stop_requested = False
 
-
 def graceful_exit_handler(signum, frame):
     global stop_requested
     if not stop_requested:
