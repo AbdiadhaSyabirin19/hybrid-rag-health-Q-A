@@ -1,36 +1,74 @@
-import os
+"""Ingestion pipeline: memuat CSV, memecah menjadi chunk, dan mengirim ke Qdrant.
+
+Mendukung:
+- Checkpoint otomatis untuk melanjutkan proses yang terinterupsi.
+- Graceful exit (Ctrl+C) yang menyelesaikan batch aktif sebelum keluar.
+- Sinkronisasi otomatis antara status Qdrant dan file checkpoint.
+"""
+
 import json
-import sys
+import logging
+import os
 import signal
+import sys
+from pathlib import Path
 import pandas as pd
-from tqdm import tqdm
 from langchain_core.documents import Document
-from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_ollama import OllamaEmbeddings
 from langchain_qdrant import QdrantVectorStore
+from langchain_text_splitters import RecursiveCharacterTextSplitter
 from qdrant_client import QdrantClient
 from qdrant_client.http.models import Distance, VectorParams
+from tqdm import tqdm
 
 from src import config
 
-# Variabel global untuk mendeteksi permintaan berhenti
-stop_requested = False
+logger = logging.getLogger(__name__)
 
-def graceful_exit_handler(signum, frame):
-    global stop_requested
-    if not stop_requested:
-        print("\n[!] Menangkap sinyal berhenti (Ctrl+C). Menyelesaikan batch aktif saat ini sebelum keluar secara aman...")
-        stop_requested = True
+# Variabel global untuk mendeteksi permintaan berhenti
+_stop_requested = False
+
+CHECKPOINT_PATH = Path("data/checkpoint.json")
+BATCH_SIZE = 100
+
+
+# ---------------------------------------------------------------------------
+# Signal handler
+# ---------------------------------------------------------------------------
+
+
+def _graceful_exit_handler(signum, frame) -> None:
+    """Menangkap Ctrl+C dan menandai agar loop berhenti setelah batch aktif selesai."""
+    global _stop_requested
+    if not _stop_requested:
+        logger.warning(
+            "Menangkap sinyal berhenti (Ctrl+C). "
+            "Menyelesaikan batch aktif sebelum keluar secara aman..."
+        )
+        _stop_requested = True
     else:
-        print("\n[!] Memaksa keluar segera...")
+        logger.warning("Memaksa keluar segera...")
         sys.exit(1)
 
 
-def muat_dokumen(csv_path: str) -> list[Document]:
-    """Memuat CSV artikel dan mengubahnya menjadi list Document LangChain."""
+# ---------------------------------------------------------------------------
+# Tahap 1: Memuat dokumen
+# ---------------------------------------------------------------------------
+
+
+def muat_dokumen(csv_path: str | Path) -> list[Document]:
+    """Memuat CSV artikel dan mengubahnya menjadi list Document LangChain.
+
+    Args:
+        csv_path: Path ke file CSV berisi kolom judul, tanggal, url, label, konten.
+
+    Returns:
+        List Document LangChain dengan metadata lengkap.
+    """
     df = pd.read_csv(csv_path)
-    df = df.dropna(subset=["konten"])  # pastikan konten tidak kosong
-    dokumen = []
+    df = df.dropna(subset=["konten"])
+
+    dokumen: list[Document] = []
     for _, row in df.iterrows():
         dokumen.append(Document(
             page_content=str(row["konten"]),
@@ -44,8 +82,17 @@ def muat_dokumen(csv_path: str) -> list[Document]:
     return dokumen
 
 
+# ---------------------------------------------------------------------------
+# Tahap 2: Chunking
+# ---------------------------------------------------------------------------
+
+
 def pecah_menjadi_chunk(dokumen: list[Document]) -> list[Document]:
-    """Memecah setiap dokumen artikel menjadi beberapa chunk lebih kecil."""
+    """Memecah setiap dokumen artikel menjadi beberapa chunk lebih kecil.
+
+    Menggunakan RecursiveCharacterTextSplitter dengan separator hierarkis
+    untuk mempertahankan koherensi teks.
+    """
     splitter = RecursiveCharacterTextSplitter(
         chunk_size=config.CHUNK_SIZE,
         chunk_overlap=config.CHUNK_OVERLAP,
@@ -54,163 +101,279 @@ def pecah_menjadi_chunk(dokumen: list[Document]) -> list[Document]:
     return splitter.split_documents(dokumen)
 
 
-def main():
-    global stop_requested
-    
-    # Registrasi handler untuk menangkap Ctrl+C secara anggun
-    signal.signal(signal.SIGINT, graceful_exit_handler)
+# ---------------------------------------------------------------------------
+# Tahap 3: Setup Qdrant
+# ---------------------------------------------------------------------------
 
-    checkpoint_path = "data/checkpoint.json"
 
-    # Cek opsi reset
-    if "--reset" in sys.argv:
-        if os.path.exists(checkpoint_path):
-            os.remove(checkpoint_path)
-        print("Checkpoint direset. Ingestion akan dimulai dari awal.")
+def _deteksi_dimensi_embedding(embeddings: OllamaEmbeddings) -> int:
+    """Menguji dimensi model embedding dengan mengirim query test."""
+    logger.info("Menguji dimensi model embedding...")
+    try:
+        test_vector = embeddings.embed_query("test")
+        dimensi = len(test_vector)
+        logger.info("Dimensi model embedding terdeteksi: %d", dimensi)
+        return dimensi
+    except Exception as e:
+        logger.error(
+            "Gagal terhubung ke Ollama di %s. Detail: %s",
+            config.OLLAMA_BASE_URL, e,
+        )
+        sys.exit(1)
 
-    print("[1/4] Memuat dokumen dari CSV...")
+
+def _siapkan_koleksi(
+    client: QdrantClient,
+    vector_size: int,
+    *,
+    reset: bool = False,
+) -> None:
+    """Membuat atau mereset koleksi Qdrant sesuai kebutuhan.
+
+    Args:
+        client: Instance QdrantClient.
+        vector_size: Dimensi vektor embedding.
+        reset: Jika True, hapus dan buat ulang koleksi yang sudah ada.
+    """
+    nama = config.COLLECTION_NAME
+    vector_cfg = VectorParams(size=vector_size, distance=Distance.COSINE)
+
+    if not client.collection_exists(nama):
+        logger.info("Membuat koleksi baru '%s' di Qdrant...", nama)
+        client.create_collection(collection_name=nama, vectors_config=vector_cfg)
+    elif reset:
+        logger.info("Menghapus dan membuat ulang koleksi '%s'...", nama)
+        client.delete_collection(nama)
+        client.create_collection(collection_name=nama, vectors_config=vector_cfg)
+    else:
+        logger.info("Koleksi '%s' sudah ada. Melanjutkan...", nama)
+
+
+# ---------------------------------------------------------------------------
+# Tahap 4: Sinkronisasi progress
+# ---------------------------------------------------------------------------
+
+
+def _muat_checkpoint() -> dict | None:
+    """Membaca file checkpoint jika ada dan model embedding cocok.
+
+    Returns:
+        Dict checkpoint jika valid, None jika tidak ditemukan atau tidak cocok.
+    """
+    if not CHECKPOINT_PATH.exists():
+        return None
+    try:
+        data = json.loads(CHECKPOINT_PATH.read_text(encoding="utf-8"))
+        if data.get("embedding_model") == config.EMBEDDING_MODEL:
+            return data
+    except Exception:
+        pass
+    return None
+
+
+def _simpan_checkpoint(last_index: int, total_chunks: int) -> None:
+    """Menyimpan progress ke file checkpoint."""
+    CHECKPOINT_PATH.parent.mkdir(parents=True, exist_ok=True)
+    CHECKPOINT_PATH.write_text(
+        json.dumps({
+            "embedding_model": config.EMBEDDING_MODEL,
+            "last_index_in_qdrant": last_index,
+            "total_chunks": total_chunks,
+        }),
+        encoding="utf-8",
+    )
+
+
+def _sinkronkan_progress(
+    client: QdrantClient,
+    total_chunks: int,
+) -> int:
+    """Menentukan indeks awal pengiriman berdasarkan status Qdrant dan checkpoint.
+
+    Membandingkan jumlah point di Qdrant dengan checkpoint file,
+    lalu menggunakan acuan yang paling aman (database Qdrant).
+
+    Args:
+        client: Instance QdrantClient.
+        total_chunks: Total chunk yang harus diproses.
+
+    Returns:
+        Indeks awal untuk melanjutkan pengiriman.
+    """
+    # Ambil jumlah point aktual di Qdrant
+    qdrant_count = 0
+    try:
+        qdrant_count = client.count(collection_name=config.COLLECTION_NAME).count
+    except Exception as e:
+        logger.warning("Gagal mendeteksi jumlah data di Qdrant: %s", e)
+
+    # Ambil index dari checkpoint
+    checkpoint = _muat_checkpoint()
+    checkpoint_index = checkpoint.get("last_index_in_qdrant") if checkpoint else None
+
+    # Log status sinkronisasi
+    if checkpoint_index is not None:
+        logger.info("Index di checkpoint.json : %d", checkpoint_index)
+        logger.info("Point aktual di Qdrant   : %d", qdrant_count)
+        if checkpoint_index == qdrant_count:
+            logger.info("Status: SINKRON. Melanjutkan dari indeks: %d", qdrant_count)
+        else:
+            logger.warning(
+                "Status: TIDAK SINKRON (interupsi sebelumnya). "
+                "Menggunakan acuan aman database Qdrant (%d).",
+                qdrant_count,
+            )
+    else:
+        logger.info("Index di checkpoint.json : Tidak ditemukan / Baru")
+        logger.info("Point aktual di Qdrant   : %d", qdrant_count)
+        logger.info("Melanjutkan dari indeks database Qdrant: %d", qdrant_count)
+
+    if qdrant_count >= total_chunks:
+        logger.info(
+            "Proses ingestion sudah selesai (%d/%d chunk). "
+            "Gunakan '--reset' untuk mengulang.",
+            qdrant_count, total_chunks,
+        )
+        sys.exit(0)
+
+    return qdrant_count
+
+
+# ---------------------------------------------------------------------------
+# Tahap 5: Pengiriman batch
+# ---------------------------------------------------------------------------
+
+
+def _kirim_batch(
+    vector_store: QdrantVectorStore,
+    chunks: list[Document],
+    start_idx: int,
+    total_chunks: int,
+) -> int:
+    """Mengirim chunk ke Qdrant dalam batch dengan progress bar.
+
+    Args:
+        vector_store: Instance QdrantVectorStore.
+        chunks: Seluruh list chunk.
+        start_idx: Indeks awal pengiriman.
+        total_chunks: Total jumlah chunk.
+
+    Returns:
+        Jumlah chunk yang berhasil dikirim pada sesi ini.
+    """
+    global _stop_requested
+    chunks_terkirim = 0
+
+    logger.info("Mengirim chunk ke Qdrant per batch (%d chunk)...", BATCH_SIZE)
+    progress_bar = tqdm(
+        initial=start_idx,
+        total=total_chunks,
+        desc="Progress Ingest",
+    )
+
+    try:
+        for i in range(start_idx, total_chunks, BATCH_SIZE):
+            if _stop_requested:
+                break
+
+            batch = chunks[i : i + BATCH_SIZE]
+            vector_store.add_documents(batch)
+            chunks_terkirim += len(batch)
+
+            # Update progress berdasarkan index yang sudah diproses,
+            # TANPA query client.count() setiap batch (menghindari network call)
+            progress_sekarang = i + len(batch)
+            progress_bar.n = progress_sekarang
+            progress_bar.refresh()
+
+            # Simpan checkpoint
+            _simpan_checkpoint(
+                last_index=progress_sekarang,
+                total_chunks=total_chunks,
+            )
+
+        # Log status akhir
+        total_terkirim = start_idx + chunks_terkirim
+        if _stop_requested:
+            logger.info(
+                "Proses dihentikan dengan aman. "
+                "Progress tersimpan: %d/%d chunk.",
+                total_terkirim, total_chunks,
+            )
+        else:
+            logger.info(
+                "Selesai! Seluruh basis pengetahuan (%d chunk) berhasil disimpan.",
+                total_terkirim,
+            )
+    except Exception as e:
+        logger.error("Terjadi kesalahan selama ingestion: %s", e)
+        logger.info("Proses dihentikan. Jalankan kembali untuk melanjutkan.")
+    finally:
+        progress_bar.close()
+
+    return chunks_terkirim
+
+
+# ---------------------------------------------------------------------------
+# Entrypoint
+# ---------------------------------------------------------------------------
+
+
+def main() -> None:
+    """Menjalankan pipeline ingestion lengkap: load → chunk → embed → store."""
+    global _stop_requested
+    _stop_requested = False
+
+    # Setup logging
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s [%(levelname)s] %(message)s",
+        datefmt="%H:%M:%S",
+    )
+
+    # Registrasi handler Ctrl+C
+    signal.signal(signal.SIGINT, _graceful_exit_handler)
+
+    reset = "--reset" in sys.argv
+    if reset and CHECKPOINT_PATH.exists():
+        CHECKPOINT_PATH.unlink()
+        logger.info("Checkpoint direset. Ingestion akan dimulai dari awal.")
+
+    # Tahap 1: Muat dokumen
+    logger.info("[1/4] Memuat dokumen dari CSV...")
     dokumen = muat_dokumen("data/artikel_kesehatan.csv")
-    print(f"      Total artikel: {len(dokumen)}")
+    logger.info("      Total artikel: %d", len(dokumen))
 
-    print("[2/4] Memecah artikel menjadi chunk...")
+    # Tahap 2: Pecah menjadi chunk
+    logger.info("[2/4] Memecah artikel menjadi chunk...")
     chunks = pecah_menjadi_chunk(dokumen)
     total_chunks = len(chunks)
-    print(f"      Total chunk: {total_chunks}")
+    logger.info("      Total chunk: %d", total_chunks)
 
-    print("[3/4] Menyiapkan model embedding lokal (Ollama)...")
+    # Tahap 3: Siapkan embedding & Qdrant
+    logger.info("[3/4] Menyiapkan model embedding lokal (Ollama)...")
     embeddings = OllamaEmbeddings(
         model=config.EMBEDDING_MODEL,
         base_url=config.OLLAMA_BASE_URL,
     )
+    vector_size = _deteksi_dimensi_embedding(embeddings)
 
-    # Deteksi dimensi embedding secara dinamis
-    print("      Menguji dimensi model embedding...")
-    try:
-        test_vector = embeddings.embed_query("test")
-        vector_size = len(test_vector)
-        print(f"      Dimensi model embedding terdeteksi: {vector_size}")
-    except Exception as e:
-        print(f"Error: Gagal terhubung ke Ollama. Pastikan Ollama berjalan di {config.OLLAMA_BASE_URL}.")
-        print(f"Detail error: {e}")
-        sys.exit(1)
-
-    print("[4/4] Menginisialisasi koneksi Qdrant...")
+    logger.info("[4/4] Menginisialisasi koneksi Qdrant...")
     client = QdrantClient(url=f"http://{config.QDRANT_HOST}:{config.QDRANT_PORT}")
+    _siapkan_koleksi(client, vector_size, reset=reset)
 
-    # Buat koleksi jika belum ada
-    if not client.collection_exists(config.COLLECTION_NAME):
-        print(f"      Membuat koleksi baru '{config.COLLECTION_NAME}' di Qdrant...")
-        client.create_collection(
-            collection_name=config.COLLECTION_NAME,
-            vectors_config=VectorParams(size=vector_size, distance=Distance.COSINE),
-        )
-    else:
-        # Jika --reset dipanggil, kita hapus dan buat ulang koleksinya
-        if "--reset" in sys.argv:
-            print(f"      Menghapus dan membuat ulang koleksi '{config.COLLECTION_NAME}'...")
-            client.delete_collection(config.COLLECTION_NAME)
-            client.create_collection(
-                collection_name=config.COLLECTION_NAME,
-                vectors_config=VectorParams(size=vector_size, distance=Distance.COSINE),
-            )
-        else:
-            print(f"      Koleksi '{config.COLLECTION_NAME}' sudah ada. Melanjutkan...")
-
-    # Deteksi progress secara dinamis dengan menyelaraskan status Qdrant dan Checkpoint File
+    # Tahap 4: Sinkronkan progress
     start_idx = 0
-    if "--reset" not in sys.argv:
-        print("      Menyelaraskan status database dan file checkpoint...")
-        
-        # 1. Ambil jumlah point aktual di Qdrant
-        qdrant_count = 0
-        try:
-            qdrant_count = client.count(collection_name=config.COLLECTION_NAME).count
-        except Exception as e:
-            print(f"      [!] Gagal mendeteksi jumlah data di Qdrant: {e}")
-            
-        # 2. Ambil index terakhir dari checkpoint.json
-        checkpoint_index = None
-        if os.path.exists(checkpoint_path):
-            try:
-                with open(checkpoint_path, "r") as f:
-                    checkpoint_data = json.load(f)
-                    if checkpoint_data.get("embedding_model") == config.EMBEDDING_MODEL:
-                        checkpoint_index = checkpoint_data.get("last_index_in_qdrant")
-            except Exception as e:
-                pass
-                
-        # 3. Bandingkan dan cetak keterangan ke terminal
-        if checkpoint_index is not None:
-            print(f"      -> Index di checkpoint.json : {checkpoint_index}")
-            print(f"      -> Point aktual di Qdrant     : {qdrant_count}")
-            if checkpoint_index == qdrant_count:
-                print(f"      -> Status: SINKRON. Melanjutkan pengiriman dari indeks: {qdrant_count}")
-            else:
-                print(f"      -> Status: TIDAK SINKRON (interupsi sebelumnya).")
-                print(f"         Menggunakan acuan aman database Qdrant ({qdrant_count}) untuk melanjutkan.")
-        else:
-            print(f"      -> Index di checkpoint.json : Tidak ditemukan / Baru")
-            print(f"      -> Point aktual di Qdrant     : {qdrant_count}")
-            print(f"      -> Status: Melanjutkan pengiriman dari indeks database Qdrant: {qdrant_count}")
-            
-        start_idx = qdrant_count
-        
-        if start_idx >= total_chunks:
-            print(f"      Proses ingestion sudah selesai ({start_idx}/{total_chunks} chunk). Gunakan '--reset' jika ingin mengulang.")
-            sys.exit(0)
+    if not reset:
+        start_idx = _sinkronkan_progress(client, total_chunks)
 
-    # Inisialisasi QdrantVectorStore LangChain
+    # Tahap 5: Kirim batch
     vector_store = QdrantVectorStore(
         client=client,
         collection_name=config.COLLECTION_NAME,
         embedding=embeddings,
     )
-
-    # Ukuran batch diperkecil agar progress update lebih sering/real-time
-    batch_size = 100
-    print(f"      Mengirim chunk ke Qdrant per batch ({batch_size} chunk)...")
-    
-    # Progress bar dengan tqdm
-    progress_bar = tqdm(
-        initial=start_idx,
-        total=total_chunks,
-        desc="Progress Ingest"
-    )
-
-    try:
-        for i in range(start_idx, total_chunks, batch_size):
-            if stop_requested:
-                break
-                
-            batch = chunks[i:i + batch_size]
-            vector_store.add_documents(batch)
-            
-            # Dapatkan jumlah point nyata terbaru dari Qdrant
-            current_qdrant_count = client.count(collection_name=config.COLLECTION_NAME).count
-            
-            # Selaraskan progress bar dengan database Qdrant
-            progress_bar.n = current_qdrant_count
-            progress_bar.refresh()
-            
-            # Tulis checkpoint agar user bisa memeriksa filenya
-            with open(checkpoint_path, "w") as f:
-                json.dump({
-                    "embedding_model": config.EMBEDDING_MODEL,
-                    "last_index_in_qdrant": current_qdrant_count,
-                    "total_chunks": total_chunks
-                }, f)
-                
-        # Dapatkan status akhir setelah keluar loop
-        final_count = client.count(collection_name=config.COLLECTION_NAME).count
-        if stop_requested:
-            print(f"\n[i] Proses dihentikan dengan aman. Total data tersimpan di Qdrant saat ini: {final_count}.")
-        else:
-            print(f"\nSelesai! Seluruh basis pengetahuan ({final_count} chunk) berhasil disimpan di Qdrant.")
-    except Exception as e:
-        print(f"\nTerjadi kesalahan selama ingestion: {e}")
-        print("Proses dihentikan. Anda dapat menjalankannya kembali untuk melanjutkan.")
-    finally:
-        progress_bar.close()
+    _kirim_batch(vector_store, chunks, start_idx, total_chunks)
 
 
 if __name__ == "__main__":
