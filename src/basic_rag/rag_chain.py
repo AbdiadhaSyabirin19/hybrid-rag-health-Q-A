@@ -10,11 +10,12 @@ import logging
 from collections import defaultdict
 
 from langchain_core.documents import Document
+from langchain_core.prompts import ChatPromptTemplate
 from langchain_ollama import ChatOllama, OllamaEmbeddings
 from langchain_qdrant import QdrantVectorStore
 
 from src import config
-from src.schema import HasilRAG, JawabanTerkait
+from src.basic_rag.schema import HasilRAG, JawabanTerkait
 
 logger = logging.getLogger(__name__)
 
@@ -44,11 +45,13 @@ def _buat_vector_store() -> QdrantVectorStore:
     )
 
 
-def _dapatkan_retriever():
-    """Mengembalikan retriever dari vector store."""
+def _dapatkan_retriever(score_threshold: float = 0.75):
     return _buat_vector_store().as_retriever(
-        search_type="similarity",
-        search_kwargs={"k": config.TOP_K_RETRIEVAL},
+        search_type="similarity_score_threshold",
+        search_kwargs={
+            "k": config.TOP_K_RETRIEVAL,
+            "score_threshold": score_threshold, # Hanya ambil chunk dengan kemiripan >= 70%
+        },
     )
 
 
@@ -152,28 +155,23 @@ def format_artikel_untuk_prompt(artikel_list: list[dict]) -> str:
 # Prompt template
 # ---------------------------------------------------------------------------
 
-TEMPLATE_JAWABAN_TERKAIT = """\
-Berdasarkan beberapa artikel kesehatan di bawah, \
-susun jawaban dengan format berikut:
-1. jawaban_utama: satu jawaban terpadu yang menjawab pertanyaan pengguna, \
-menggabungkan informasi dari semua artikel yang relevan.
-2. jawaban_terkait: untuk SETIAP artikel di bawah, tuliskan ringkasan 1-2 kalimat \
-yang menjawab pertanyaan dari sudut pandang artikel tersebut secara spesifik.
-3. perlu_rujukan_medis: true jika pertanyaan mengindikasikan gejala berat/darurat.
+PROMPT_RAG = ChatPromptTemplate.from_messages([
+    ("system", (
+        "Anda adalah Asisten Informasi Kesehatan AI. Jawab pertanyaan HANYA berdasarkan konteks artikel kesehatan yang diberikan.\n\n"
+        "PANDUAN UTAMA:\n"
+        "- Di Luar Domain: Tolak dengan sopan jika pertanyaan bukan tentang kesehatan/medis. Kosongkan `jawaban_terkait` dan set `perlu_rujukan_medis: false`.\n"
+        "- Gejala Berat/Darurat: Sarankan segera ke IGD/faskes terdekat dan set `perlu_rujukan_medis: true`.\n"
+        "- Batasan Medis: Dilarang membuat diagnosis pasti, menjanjikan kesembuhan, atau berasumsi di luar teks. Jika informasi tidak ada di konteks, nyatakan tidak tersedia.\n\n"
+        "FORMAT OUTPUT:\n"
+        "1. jawaban_utama: Jawaban terpadu hasil sintesis dari artikel terkait beserta sitasi sumber. Jika ada kontradiksi informasi, tuliskan kedua sudut pandang secara objektif.\n"
+        "2. jawaban_terkait: Ringkasan 1-2 kalimat untuk SETIAP artikel yang diberikan beserta ID/judulnya.\n"
+        "3. perlu_rujukan_medis: true / false."
+    )),
+    ("human", (
+        "Konteks Artikel:\n{artikel_terformat}\n\nPertanyaan: {question}"
+    )),
+])
 
-ATURAN PENTING:
-- Jawab HANYA berdasarkan konteks artikel yang diberikan. \
-Jangan menambahkan informasi dari pengetahuan lain.
-- Jika konteks tidak cukup, katakan dengan jujur bahwa informasi tidak tersedia.
-- Jangan memberikan diagnosis pasti maupun menjanjikan kesembuhan.
-- Untuk gejala berat/darurat, sarankan menghubungi layanan gawat darurat.
-- Gunakan bahasa Indonesia yang jelas dan mudah dipahami orang awam.
-
-Pertanyaan pengguna: {question}
-
-Artikel-artikel:
-{artikel_terformat}
-"""
 
 # ---------------------------------------------------------------------------
 # Fungsi utama
@@ -198,7 +196,24 @@ def tanya(pertanyaan: str) -> HasilRAG:
     """
     retriever = _dapatkan_retriever()
     dokumen_relevan = retriever.invoke(pertanyaan)
+
+    if not dokumen_relevan:
+        logger.info("Tidak ditemukan dokumen yang memenuhi threshold relevansi.")
+        return HasilRAG(
+            jawaban_utama="Maaf, tidak ditemukan informasi yang relevan dalam basis data pengetahuan kesehatan kami untuk pertanyaan ini.",
+            jawaban_terkait=[],
+            perlu_rujukan_medis=False,
+        )
+
     artikel_list = kelompokkan_per_artikel(dokumen_relevan)
+    if not artikel_list:
+        logger.info("Tidak ditemukan artikel yang relevan setelah pengelompokan.")
+        return HasilRAG(
+            jawaban_utama="Maaf, tidak ditemukan informasi yang relevan dalam basis data pengetahuan kesehatan kami untuk pertanyaan ini.",
+            jawaban_terkait=[],
+            perlu_rujukan_medis=False,
+        )
+
     artikel_terformat = format_artikel_untuk_prompt(artikel_list)
 
     # Nyalakan thinking mode otomatis jika pertanyaan butuh menggabungkan
@@ -206,11 +221,11 @@ def tanya(pertanyaan: str) -> HasilRAG:
     perlu_thinking = len(artikel_list) > 1
     llm_terstruktur = _dapatkan_llm_terstruktur(gunakan_thinking=perlu_thinking)
 
-    prompt_lengkap = TEMPLATE_JAWABAN_TERKAIT.format(
-        question=pertanyaan,
-        artikel_terformat=artikel_terformat,
-    )
-    hasil: HasilRAG = llm_terstruktur.invoke(prompt_lengkap)
+    chain = PROMPT_RAG | llm_terstruktur
+    hasil: HasilRAG = chain.invoke({
+        "question": pertanyaan,
+        "artikel_terformat": artikel_terformat,
+    })
 
     # Lengkapi url & sumber jika LLM tidak menyalinnya dengan sempurna,
     # dengan mencocokkan judul_artikel ke metadata asli (lebih andal)

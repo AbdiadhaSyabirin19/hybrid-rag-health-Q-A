@@ -9,8 +9,8 @@ import logging
 import streamlit as st
 
 from src import config
-from src.rag_chain import cari_artikel_terkait_tambahan, tanya
-from src.schema import HasilRAG, JawabanTerkait
+from src.basic_rag.rag_chain import cari_artikel_terkait_tambahan, tanya
+from src.basic_rag.schema import HasilRAG, JawabanTerkait
 
 logger = logging.getLogger(__name__)
 

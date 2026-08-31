@@ -1,0 +1,264 @@
+[
+  {
+    "id": "EC-001",
+    "type": "edge-cases",
+    "description": "Multi-doc synthesis: membandingkan pantangan makanan penderita asam urat vs diabetes sekaligus",
+    "question": "Makanan apa saja yang harus dihindari jika seseorang menderita penyakit asam urat sekaligus diabetes melitus?",
+    "expected_keywords": [
+      "purin",
+      "gula",
+      "karbohidrat",
+      "asam urat",
+      "diabetes"
+    ]
+  },
+  {
+    "id": "EC-002",
+    "type": "edge-cases",
+    "description": "Multi-doc synthesis: penanganan gabungan hipertensi dan kolesterol tinggi melalui pola makan",
+    "question": "Bagaimana pengaturan pola makan (diet) untuk pasien yang memiliki tekanan darah tinggi sekaligus kadar kolesterol LDL tinggi?",
+    "expected_keywords": [
+      "garam",
+      "lemak jenuh",
+      "serat",
+      "hipertensi",
+      "kolesterol"
+    ]
+  },
+  {
+    "id": "EC-003",
+    "type": "edge-cases",
+    "description": "Pertanyaan ambigu / parsial: mual dan pusing tanpa spesifikasi kondisi",
+    "question": "Saya merasa sering mual dan pusing berputar, apakah ini masalah pencernaan atau masalah saraf vertigo?",
+    "expected_keywords": [
+      "vertigo",
+      "lambung",
+      "saraf",
+      "pemeriksaan",
+      "pencernaan"
+    ]
+  },
+  {
+    "id": "EC-004",
+    "type": "edge-cases",
+    "description": "Multi-doc synthesis: interaksi antara olahraga berat dan penyakit maag/GERD",
+    "question": "Apakah aman melakukan olahraga berat saat asam lambung sedang naik atau maag kambuh?",
+    "expected_keywords": [
+      "ringan",
+      "tekanan perut",
+      "lambung",
+      "GERD",
+      "olahraga"
+    ]
+  },
+  {
+    "id": "EC-005",
+    "type": "edge-cases",
+    "description": "Pertanyaan ambigu: batuk tak kunjung sembuh lebih dari 2 minggu",
+    "question": "Batuk saya tidak kunjung sembuh sudah lebih dari 3 minggu, apakah ini batuk alergi, asma, atau TBC?",
+    "expected_keywords": [
+      "TBC",
+      "alergi",
+      "pemeriksaan dahak",
+      "ronche",
+      "dokter"
+    ]
+  },
+  {
+    "id": "EC-006",
+    "type": "edge-cases",
+    "description": "Multi-doc synthesis: konsumsi vitamin D untuk penderita gangguan ginjal",
+    "question": "Apakah penderita gagal ginjal boleh mengonsumsi suplemen Vitamin D dosis tinggi secara bebas?",
+    "expected_keywords": [
+      "ginjal",
+      "kalsium",
+      "resep dokter",
+      "vitamin D",
+      "pengawasan"
+    ]
+  },
+  {
+    "id": "EC-007",
+    "type": "edge-cases",
+    "description": "Pertanyaan ambigu: membedakan demam tifoid (tipes) dengan demam berdarah (DBD) di hari ke-3",
+    "question": "Demam naik turun di hari ke-3 disertai mual, bagaimana cara membedakan tipes dengan DBD sebelum cek darah?",
+    "expected_keywords": [
+      "trombosit",
+      "pola demam",
+      "cek darah",
+      "tipes",
+      "DBD"
+    ]
+  },
+  {
+    "id": "EC-008",
+    "type": "edge-cases",
+    "description": "Multi-doc synthesis: hubungan antara stres kronis dengan kesehatan kulit dan jerawat",
+    "question": "Bagaimana stres emosional dapat memicu timbulnya jerawat parah dan eksim pada kulit?",
+    "expected_keywords": [
+      "kortisol",
+      "hormon",
+      "peradangan",
+      "stres",
+      "jerawat",
+      "kulit"
+    ]
+  },
+  {
+    "id": "EC-009",
+    "type": "edge-cases",
+    "description": "Pertanyaan terpotong / spesifikasi parsial tentang obat bebas",
+    "question": "Bolehkah mengonsumsi parasetamol bersamaan dengan ibuprofen saat pusing berat?",
+    "expected_keywords": [
+      "dosis",
+      "lambung",
+      "parasetamol",
+      "ibuprofen",
+      "dokter"
+    ]
+  },
+  {
+    "id": "EC-010",
+    "type": "edge-cases",
+    "description": "Multi-doc synthesis: pencegahan osteoporosis pada lansia yang menderita diabetes",
+    "question": "Bagaimana lansia penderita diabetes menjaga kesehatan tulang agar tidak osteoporosis tanpa menaikkan kadar gula?",
+    "expected_keywords": [
+      "kalsium",
+      "vitamin D",
+      "olahraga beban",
+      "gula darah",
+      "tulang"
+    ]
+  },
+  {
+    "id": "EC-011",
+    "type": "edge-cases",
+    "description": "Pertanyaan ambigu: nyeri dada kiri setelah makan pedas vs serangan jantung",
+    "question": "Nyeri dada kiri muncul sesaat setelah makan sambal pedas, apakah itu serangan jantung atau GERD?",
+    "expected_keywords": [
+      "GERD",
+      "ulu hati",
+      "jantung",
+      "sensasi terbakar",
+      "pemeriksaan"
+    ]
+  },
+  {
+    "id": "EC-012",
+    "type": "edge-cases",
+    "description": "Multi-doc synthesis: penggunaan gadget pada anak astigmatisme (mata silinder)",
+    "question": "Apakah anak dengan mata silinder boleh menonton TV/HP, dan berapa durasi maksimal yang aman?",
+    "expected_keywords": [
+      "durasi",
+      "istirahat",
+      "mata",
+      "silinder",
+      "gadget"
+    ]
+  },
+  {
+    "id": "EC-013",
+    "type": "edge-cases",
+    "description": "Pertanyaan partially covered: efek kopi pada penderita anemia",
+    "question": "Apakah minum kopi setelah makan bisa menghambat penyerapan zat besi bagi penderita anemia?",
+    "expected_keywords": [
+      "tanin",
+      "zat besi",
+      "penyerapan",
+      "kopi",
+      "anemia"
+    ]
+  },
+  {
+    "id": "EC-014",
+    "type": "edge-cases",
+    "description": "Multi-doc synthesis: pola olahraga untuk penderita obesitas yang mengalami nyeri lutut",
+    "question": "Pilihan olahraga apa yang aman untuk memangkas berat badan obesitas jika lutut sering terasa nyeri?",
+    "expected_keywords": [
+      "renang",
+      "sepeda statis",
+      "beban sendi",
+      "lutut",
+      "obesitas"
+    ]
+  },
+  {
+    "id": "EC-015",
+    "type": "edge-cases",
+    "description": "Pertanyaan ambigu: kulit gatal merah setelah makan udang dan terpapar dingin",
+    "question": "Bentol gatal muncul saat udara dingin setelah saya makan udang, ini alergi makanan atau alergi dingin?",
+    "expected_keywords": [
+      "histamin",
+      "alergi makanan",
+      "alergi dingin",
+      "urtikaria",
+      "biduran"
+    ]
+  },
+  {
+    "id": "EC-016",
+    "type": "edge-cases",
+    "description": "Multi-doc synthesis: penanganan kecemasan berlebih yang berdampak pada gangguan pencernaan (IBS)",
+    "question": "Bagaimana mengatasi perut sering mules dan diare yang selalu kumat setiap kali merasa cemas atau gugup?",
+    "expected_keywords": [
+      "gut-brain axis",
+      "stres",
+      "kecemasan",
+      "pencernaan",
+      "relaksasi"
+    ]
+  },
+  {
+    "id": "EC-017",
+    "type": "edge-cases",
+    "description": "Pertanyaan partially covered: kebiasaan mendengkur (ngorok) saat tidur",
+    "question": "Apakah ngorok keras saat tidur menandakan bahaya seperti sleep apnea atau hanya karena lelah?",
+    "expected_keywords": [
+      "sleep apnea",
+      "saluran napas",
+      "oksigen",
+      "mendengkur",
+      "ngorok"
+    ]
+  },
+  {
+    "id": "EC-018",
+    "type": "edge-cases",
+    "description": "Multi-doc synthesis: penanganan luka bakar ringan pada penderita diabetes",
+    "question": "Kenapa luka bakar melepuh di kaki pasien diabetes sangat berbahaya dan bagaimana merawatnya?",
+    "expected_keywords": [
+      "sirkulasi darah",
+      "infeksi",
+      "gula darah",
+      "luka diabetes",
+      "steril"
+    ]
+  },
+  {
+    "id": "EC-019",
+    "type": "edge-cases",
+    "description": "Pertanyaan ambigu: sering merasa haus dan banyak kencing di malam hari",
+    "question": "Kenapa saya sering terbangun untuk kencing di malam hari dan haus terus, apakah tanda pasti diabetes?",
+    "expected_keywords": [
+      "polidipsi",
+      "poliuri",
+      "gula darah",
+      "tes laboratorium",
+      "diabetes"
+    ]
+  },
+  {
+    "id": "EC-020",
+    "type": "edge-cases",
+    "description": "Multi-doc synthesis: pemberian ASI eksklusif oleh ibu yang sedang mengalami flu berat",
+    "question": "Apakah ibu yang sedang flu dan demam tetap boleh menyusui bayinya secara langsung?",
+    "expected_keywords": [
+      "masker",
+      "cuci tangan",
+      "antibodi",
+      "ASI",
+      "menyusui",
+      "aman"
+    ]
+  }
+]

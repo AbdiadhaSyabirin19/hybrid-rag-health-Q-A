@@ -1,0 +1,35 @@
+{
+  "mode": "hybrid",
+  "total_kasus": 1,
+  "skor_rata_rata": {
+    "faithfulness": 0.923,
+    "answer_relevancy": 0.625,
+    "context_precision": 0.364,
+    "context_recall": 0.0
+  },
+  "rincian": [
+    {
+      "id": "HP-001",
+      "category": "Penyakit Infeksi",
+      "type": "happy-path",
+      "question": "Apa saja gejala awal dari demam berdarah dengue (DBD)?",
+      "answer": "Gejala awal demam berdarah dengue (DBD) mirip dengan demam saat batuk pilek biasa [4]",
+      "contexts": [
+        "Pemenuhan cairan untuk demam berdarah penting dilakukan agar anak cepat pulih. Lalu, minuman yang seperti apa yang harus dikonsumsi anak saat DBD? Umumnya, pengobatan demam berdarah dilakukan berdasarkan tingkat keparahan dan kondisi pasien. Bila berdasarkan tingkat keparahannya, penyakit akibat virus dengue ini terbagi menjadi dua, yaitu demam dengue dan demam berdarah dengue. Gejala pada demam dengue (DD) biasanya lebih ringan ketimbang demam berdarah dengue (DBD)",
+        "Kenapa disebut sebagai Demam Berdarah Dengue atau DBD? Disebut demam berdarah oleh karena pada keadaan demam berdarah sudah terjadi hilangnya komponen darah serta kebocoran plasma. Demam Berdarahdapat dibagi menjadi Demam Dengue dan Demam Berdarah Dengue. Kenapa disebut sebagai Demam Berdarah Dengue atau DBD? Disebut demam berdarah oleh karena pada keadaan demam berdarah sudah terjadi hilangnya komponen darah serta kebocoran plasma",
+        ". \"\"\"\"Baik demam dengue dan DBD itu sama-sama disebabkan virus dengue. Perbedaannya pada spektrumnya. Spektrum itu maksudnya apa? Itu tingkat keparahan dari penyakit,\"\"\"\" ujar dr. Alvin. Secara umum, penyakit demam dengue dan DBD memiliki gejala: Artikel Lainnya:Fase Demam Berdarah pada Anak dan Orang Dewasa, Samakah? Dokter Alvin menjelaskan, demam dengue merupakan versi ringan dari DBD. Perbedaan paling mencolok adalah masalah kebocoran plasma dan trombosit",
+        ". Oleh sebab itu, sebagai negara yang cukup endemik terhadap penyakit demam berdarah, sudah sewajarnya Anda mengenaligejala penyakit demam berdarah dengue. Apalagi faktanya gejala awal demam berdarah dengue tak ubahnya seperti demam saat batuk pilek biasa. Berikut adalah gejala demam berdarah yang wajib Anda ketahui: Rata-rata, penyakit ini menimbulkan gejala setelah 4-10 hari pasca tergigit nyamukAedes aegyptiyang mengandung virus dengue",
+        "Untuk mencegah demam berdarah, ada tanaman pengusir nyamuk yang bisa Anda pasang di rumah. Apa saja? Yuk, simak lengkapnya di sini. Penyakit demam berdarah patut diwaspadai saat musim hujan. Sebab, hujan rentan menimbulkan genangan yang bisa menjadi tempat berkembangnya nyamukAedes aegypti. Demam berdarah dengue atau DBD disebabkan oleh virus dengue yang ditularkan lewat gigitan nyamuk betinaAedes aegypti. Virus dengue terdiri dari empat jenis, yakni dengue tipe 1, 2, 3, dan 4",
+        "Demam berdarah, atau yang dikenal juga sebagai demam berdarah dengue (DBD), merupakan suatu penyakit infeksi yang disebabkan oleh virus dengue Klikdokter.com- Demam berdarah, atau yang dikenal juga sebagai demam berdarah dengue (DBD), merupakan suatu penyakit infeksi yang disebabkan oleh virusdenguedan ditularkan melalui gigitan nyamukAedes aegyptidanAedes albopictus",
+        "Sampai saat ini belum ada obat untuk sakit demam berdarah dengue (DBD). Tapi, proses penyembuhan bisa dipercepat lewat beberapa makanan. Demam berdarah dengue menjadi ancaman di kala musim hujan seperti sekarang ini. Kalau sampai terkena, Anda bisa dipastikan akan menghabiskan waktu di tempat tidur rumah sakit untuk waktu cukup lama. Namun, ada beberapa makanan yang memang bisa percepat penyembuhan DBD. NyamukAedes aegyptisebagai penyebab DBD sangat senang ketika musim hujan seperti sekarang ini",
+        ". Berikut beberapa cara yang dapat dilakukan: Apa perbedaan Demam Berdarah dengan Flu pada Anak ? Demam berdarah dengue (DBD) dan flu sama-sama menyebabkan demam pada anak, tetapi keduanya memiliki perbedaan signifikan dalam penyebab, gejala, serta penanganannya. Berikut adalah perbedaan utama antara DBD dan flu: Demam berdarah pada anak bisa berakibat serius jika tidak segera ditangani"
+      ],
+      "ground_truth": "Jawaban yang benar harus menjelaskan tentang: demam, bintik, trombosit, nyeri, dengue.",
+      "durasi_detik": 500.64,
+      "faithfulness": 0.923,
+      "answer_relevancy": 0.625,
+      "context_precision": 0.364,
+      "context_recall": 0.0
+    }
+  ]
+}

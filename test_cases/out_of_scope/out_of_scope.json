@@ -1,0 +1,262 @@
+[
+  {
+    "id": "OOS-001",
+    "type": "out-of-scope",
+    "category": "Teknologi & Komputer",
+    "question": "Bagaimana cara mengatasi masalah error koneksi Wi-Fi yang sering terputus di laptop Windows 11?",
+    "expected_keywords": [
+      "tidak ditemukan",
+      "tidak memiliki informasi",
+      "kesehatan",
+      "luar domain",
+      "maaf"
+    ]
+  },
+  {
+    "id": "OOS-002",
+    "type": "out-of-scope",
+    "category": "Otomotif",
+    "question": "Berapa tekanan angin ban standar yang ideal untuk mobil jenis SUV saat perjalanan jauh?",
+    "expected_keywords": [
+      "tidak ditemukan",
+      "tidak memiliki informasi",
+      "kesehatan",
+      "luar domain",
+      "maaf"
+    ]
+  },
+  {
+    "id": "OOS-003",
+    "type": "out-of-scope",
+    "category": "Finansial & Investasi",
+    "question": "Bagaimana prediksi pergerakan harga saham teknologi dan aset kripto minggu ini?",
+    "expected_keywords": [
+      "tidak ditemukan",
+      "tidak memiliki informasi",
+      "kesehatan",
+      "luar domain",
+      "maaf"
+    ]
+  },
+  {
+    "id": "OOS-004",
+    "type": "out-of-scope",
+    "category": "Kuliner & Resep",
+    "question": "Bagaimana resep dan langkah-langkah membuat kue rendang khas Minangkabau yang lezat?",
+    "expected_keywords": [
+      "tidak ditemukan",
+      "tidak memiliki informasi",
+      "kesehatan",
+      "luar domain",
+      "maaf"
+    ]
+  },
+  {
+    "id": "OOS-005",
+    "type": "out-of-scope",
+    "category": "Hukum & Tata Negara",
+    "question": "Bagaimana pasal penipuan dan syarat pengajuan gugatan perdata di pengadilan negeri?",
+    "expected_keywords": [
+      "tidak ditemukan",
+      "tidak memiliki informasi",
+      "kesehatan",
+      "luar domain",
+      "maaf"
+    ]
+  },
+  {
+    "id": "OOS-006",
+    "type": "out-of-scope",
+    "category": "Pemrograman & Coding",
+    "question": "Bagaimana cara membuat REST API menggunakan kerangka kerja FastAPI dan PostgreSQL di Python?",
+    "expected_keywords": [
+      "tidak ditemukan",
+      "tidak memiliki informasi",
+      "kesehatan",
+      "luar domain",
+      "maaf"
+    ]
+  },
+  {
+    "id": "OOS-007",
+    "type": "out-of-scope",
+    "category": "Olahraga & Sepak Bola",
+    "question": "Siapa saja nama pemain yang meraih trofi Liga Champions Eropa musim lalu?",
+    "expected_keywords": [
+      "tidak ditemukan",
+      "tidak memiliki informasi",
+      "kesehatan",
+      "luar domain",
+      "maaf"
+    ]
+  },
+  {
+    "id": "OOS-008",
+    "type": "out-of-scope",
+    "category": "Astronomi",
+    "question": "Berapa jarak rata-rata antara planet Bumi dan matahari dalam satuan kilometer?",
+    "expected_keywords": [
+      "tidak ditemukan",
+      "tidak memiliki informasi",
+      "kesehatan",
+      "luar domain",
+      "maaf"
+    ]
+  },
+  {
+    "id": "OOS-009",
+    "type": "out-of-scope",
+    "category": "Fisika & Teknik",
+    "question": "Bagaimana hukum rumus mekanika kuantum dan prinsip ketidakpastian Heisenberg bekerja?",
+    "expected_keywords": [
+      "tidak ditemukan",
+      "tidak memiliki informasi",
+      "kesehatan",
+      "luar domain",
+      "maaf"
+    ]
+  },
+  {
+    "id": "OOS-010",
+    "type": "out-of-scope",
+    "category": "Elektronik & Gadget",
+    "question": "Bagaimana cara mengganti baterai tanam dan layar smartphone yang pecah sendiri di rumah?",
+    "expected_keywords": [
+      "tidak ditemukan",
+      "tidak memiliki informasi",
+      "kesehatan",
+      "luar domain",
+      "maaf"
+    ]
+  },
+  {
+    "id": "OOS-011",
+    "type": "out-of-scope",
+    "category": "Pariwisata & Geografi",
+    "question": "Apa saja tempat wisata alam yang menarik untuk dikunjungi di kota Yogyakarta?",
+    "expected_keywords": [
+      "tidak ditemukan",
+      "tidak memiliki informasi",
+      "kesehatan",
+      "luar domain",
+      "maaf"
+    ]
+  },
+  {
+    "id": "OOS-012",
+    "type": "out-of-scope",
+    "category": "Mode & Tata Busana",
+    "question": "Bagaimana perpaduan warna baju dan celana yang cocok untuk acara formal malam hari?",
+    "expected_keywords": [
+      "tidak ditemukan",
+      "tidak memiliki informasi",
+      "kesehatan",
+      "luar domain",
+      "maaf"
+    ]
+  },
+  {
+    "id": "OOS-013",
+    "type": "out-of-scope",
+    "category": "Musik & Hiburan",
+    "question": "Siapa penyanyi utama dan judul lagu yang sedang populer di peringkat pertama tangga lagu?",
+    "expected_keywords": [
+      "tidak ditemukan",
+      "tidak memiliki informasi",
+      "kesehatan",
+      "luar domain",
+      "maaf"
+    ]
+  },
+  {
+    "id": "OOS-014",
+    "type": "out-of-scope",
+    "category": "Properti & Konstruksi",
+    "question": "Berapa perkiraan biaya semen dan batu bata untuk membangun rumah minimalis tipe 36?",
+    "expected_keywords": [
+      "tidak ditemukan",
+      "tidak memiliki informasi",
+      "kesehatan",
+      "luar domain",
+      "maaf"
+    ]
+  },
+  {
+    "id": "OOS-015",
+    "type": "out-of-scope",
+    "category": "Pendidikan & Beasiswa",
+    "question": "Bagaimana tata cara pendaftaran beasiswa kuliah luar negeri pemerintah tahun ini?",
+    "expected_keywords": [
+      "tidak ditemukan",
+      "tidak memiliki informasi",
+      "kesehatan",
+      "luar domain",
+      "maaf"
+    ]
+  },
+  {
+    "id": "OOS-016",
+    "type": "out-of-scope",
+    "category": "Penyakit Fiktif",
+    "question": "Bagaimana gejala awal dari penyakit 'Cyber-flu Virus 3000' pada manusia?",
+    "expected_keywords": [
+      "tidak ditemukan",
+      "tidak memiliki informasi",
+      "kesehatan",
+      "luar domain",
+      "maaf"
+    ]
+  },
+  {
+    "id": "OOS-017",
+    "type": "out-of-scope",
+    "category": "Sejarah & Purbakala",
+    "question": "Pada tahun berapa perang kemerdekaan dan penandatanganan perjanjian bersejarah dilakukan?",
+    "expected_keywords": [
+      "tidak ditemukan",
+      "tidak memiliki informasi",
+      "kesehatan",
+      "luar domain",
+      "maaf"
+    ]
+  },
+  {
+    "id": "OOS-018",
+    "type": "out-of-scope",
+    "category": "Pertanian & Perkebunan",
+    "question": "Bagaimana pupuk dan obat hama yang cocok untuk tanaman padi saat musim hujan?",
+    "expected_keywords": [
+      "tidak ditemukan",
+      "tidak memiliki informasi",
+      "kesehatan",
+      "luar domain",
+      "maaf"
+    ]
+  },
+  {
+    "id": "OOS-019",
+    "type": "out-of-scope",
+    "category": "Fotografi",
+    "question": "Berapa pengaturan ISO, aperture, dan shutter speed untuk mengambil foto pemandangan malam?",
+    "expected_keywords": [
+      "tidak ditemukan",
+      "tidak memiliki informasi",
+      "kesehatan",
+      "luar domain",
+      "maaf"
+    ]
+  },
+  {
+    "id": "OOS-020",
+    "type": "out-of-scope",
+    "category": "Game & eSports",
+    "question": "Bagaimana strategi dan pemilihan item terbaik untuk menang dalam game Mobile Legends?",
+    "expected_keywords": [
+      "tidak ditemukan",
+      "tidak memiliki informasi",
+      "kesehatan",
+      "luar domain",
+      "maaf"
+    ]
+  }
+]

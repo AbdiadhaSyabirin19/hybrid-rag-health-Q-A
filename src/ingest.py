@@ -350,6 +350,16 @@ def main() -> None:
     total_chunks = len(chunks)
     logger.info("      Total chunk: %d", total_chunks)
 
+    # Tahap 2b: Bangun Indeks BM25 untuk Hybrid RAG
+    logger.info("[2b/4] Membangun indeks BM25 untuk Hybrid RAG...")
+    try:
+        from src.hybrid_rag.hybrid_retrival import bangun_index_bm25
+        bangun_index_bm25(chunks, "data/bm25_index.pkl")
+        logger.info("      Indeks BM25 berhasil disimpan ke data/bm25_index.pkl")
+    except Exception as e:
+        logger.warning("      Gagal membuat indeks BM25: %s", e)
+
+
     # Tahap 3: Siapkan embedding & Qdrant
     logger.info("[3/4] Menyiapkan model embedding lokal (Ollama)...")
     embeddings = OllamaEmbeddings(
