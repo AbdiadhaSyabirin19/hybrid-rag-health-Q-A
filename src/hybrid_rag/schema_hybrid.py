@@ -74,3 +74,8 @@ class HasilRAG(BaseModel):
         default=None,
         description="Pertanyaan yang telah direformulasi menjadi standalone (jika ada riwayat)",
     )
+    konteks_retrieval: list[str] = Field(
+        default_factory=list,
+        description="Daftar teks chunk konteks hasil retrieval yang digunakan",
+    )
+

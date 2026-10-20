@@ -80,6 +80,37 @@ def hitung_skor_recency(tanggal_str: str, half_life_hari: float = 21) -> float:
         return 0.5
 
 
+def _normalisasi_kunci_chunk(chunk) -> str:
+    """Membuat kunci unik berdasarkan konten teks untuk fusi yang tepat antar-metode."""
+    konten = getattr(chunk, "page_content", "") or ""
+    return " ".join(konten.strip().lower().split())
+
+
+def _hitung_jaccard_similarity(teks1: str, teks2: str) -> float:
+    """Menghitung tingkat kesamaan kata (Jaccard similarity) antar teks."""
+    set1 = set(tokenisasi_sederhana(teks1))
+    set2 = set(tokenisasi_sederhana(teks2))
+    if not set1 or not set2:
+        return 0.0
+    irisan = len(set1.intersection(set2))
+    gabungan = len(set1.union(set2))
+    return irisan / gabungan if gabungan > 0 else 0.0
+
+
+def _apakah_duplikat(chunk_baru, daftar_terpilih: list, ambang_batas: float = 0.65) -> bool:
+    """Mengecek apakah chunk_baru adalah duplikat atau sangat mirip dengan chunk yang sudah terpilih."""
+    teks_baru = getattr(chunk_baru, "page_content", "").strip().lower()
+    if not teks_baru:
+        return True
+    for c in daftar_terpilih:
+        teks_lama = getattr(c, "page_content", "").strip().lower()
+        if teks_baru == teks_lama or teks_baru in teks_lama or teks_lama in teks_baru:
+            return True
+        if _hitung_jaccard_similarity(teks_baru, teks_lama) >= ambang_batas:
+            return True
+    return False
+
+
 def reciprocal_rank_fusion(daftar_hasil_per_metode: list[list], bobot: list[float], K: int = 60):
     """Menggabungkan beberapa hasil pencarian terurut menggunakan RRF."""
     skor_gabungan = {}
@@ -87,8 +118,11 @@ def reciprocal_rank_fusion(daftar_hasil_per_metode: list[list], bobot: list[floa
     for hasil_satu_metode, w in zip(daftar_hasil_per_metode, bobot):
         for rank, item in enumerate(hasil_satu_metode, start=1):
             chunk = item[0] if isinstance(item, tuple) else item
-            key = id(chunk)
-            skor_gabungan.setdefault(key, {"chunk": chunk, "skor": 0.0})
+            key = _normalisasi_kunci_chunk(chunk)
+            if not key:
+                continue
+            if key not in skor_gabungan:
+                skor_gabungan[key] = {"chunk": chunk, "skor": 0.0}
             skor_gabungan[key]["skor"] += w * (1.0 / (K + rank))
 
     hasil_terurut = sorted(skor_gabungan.values(), key=lambda x: x["skor"], reverse=True)
@@ -114,13 +148,13 @@ def rerank_dengan_cross_encoder(
     pertanyaan: str,
     kandidat_chunks: list,
     score_threshold: float = config.CROSS_ENCODER_THRESHOLD,
-    k_final: int = 8,
+    k_final: int = config.TOP_K_RETRIEVAL,
     model_name: str | None = None,
 ) -> list:
     """Melakukan reranking pada kandidat chunk menggunakan model Cross-Encoder.
 
     Match threshold hanya diperiksa pada tahap ini. Chunk dengan skor di bawah
-    `score_threshold` akan difilter (dieliminasi).
+    `score_threshold` akan difilter (dieliminasi), serta chunk duplikat/redundant dibersihkan.
     """
     if not kandidat_chunks:
         return []
@@ -139,10 +173,24 @@ def rerank_dengan_cross_encoder(
 
         # Urutkan dari skor Cross-Encoder tertinggi
         chunk_berpenilai.sort(key=lambda x: x[1], reverse=True)
-        return [chunk for chunk, _ in chunk_berpenilai[:k_final]]
+
+        # Seleksi k_final chunk dengan deduplikasi ketat
+        chunk_terpilih = []
+        for chunk, _ in chunk_berpenilai:
+            if not _apakah_duplikat(chunk, chunk_terpilih, ambang_batas=0.65):
+                chunk_terpilih.append(chunk)
+            if len(chunk_terpilih) >= k_final:
+                break
+        return chunk_terpilih
     except Exception as e:
-        logger.warning("Gagal melakukan Cross-Encoder reranking: %s. Menggunakan kandidat asli.", e)
-        return kandidat_chunks[:k_final]
+        logger.warning("Gagal melakukan Cross-Encoder reranking: %s. Menggunakan kandidat asli terdeduplikasi.", e)
+        chunk_terpilih = []
+        for chunk in kandidat_chunks:
+            if not _apakah_duplikat(chunk, chunk_terpilih, ambang_batas=0.65):
+                chunk_terpilih.append(chunk)
+            if len(chunk_terpilih) >= k_final:
+                break
+        return chunk_terpilih
 
 
 def retrieval_hybrid_dengan_recency(
@@ -150,7 +198,7 @@ def retrieval_hybrid_dengan_recency(
     vector_store,
     bm25: BM25Okapi | None,
     chunks_bm25: list,
-    k_final: int = 8,
+    k_final: int = config.TOP_K_RETRIEVAL,
     k_kandidat: int = 30,
     score_threshold: float = config.CROSS_ENCODER_THRESHOLD,
 ) -> list:
@@ -173,9 +221,13 @@ def retrieval_hybrid_dengan_recency(
     if not hasil_bm25 and not hasil_semantic:
         return []
 
-    # Sinyal 3: Recency
-    semua_chunk_unik = {id(c): c for c, _ in hasil_bm25}
-    semua_chunk_unik.update({id(c): c for c, _ in hasil_semantic})
+    # Sinyal 3: Recency (dengan deduplikasi kunci konten)
+    semua_chunk_unik = {}
+    for c, _ in hasil_bm25:
+        semua_chunk_unik[_normalisasi_kunci_chunk(c)] = c
+    for c, _ in hasil_semantic:
+        semua_chunk_unik.setdefault(_normalisasi_kunci_chunk(c), c)
+
     urutan_by_tanggal = sorted(
         semua_chunk_unik.values(),
         key=lambda c: hitung_skor_recency(c.metadata.get("tanggal_publikasi") or c.metadata.get("tanggal", "")),
@@ -183,7 +235,8 @@ def retrieval_hybrid_dengan_recency(
     )
     hasil_recency = [(c, None) for c in urutan_by_tanggal]
 
-    bobot_recency = 1.6 if intent_temporal else 0.3
+    # Hanya beri bobot recency jika pertanyaan memang berintensi temporal
+    bobot_recency = 1.6 if intent_temporal else 0.0
     bobot = [1.0, 1.0, bobot_recency]
 
     # Fusion RRF (BM25 + Cosine + Recency)
@@ -191,8 +244,14 @@ def retrieval_hybrid_dengan_recency(
         [hasil_bm25, hasil_semantic, hasil_recency], bobot=bobot, K=60,
     )
 
-    # Ambil pool kandidat hasil fusion untuk dinilai ulang oleh Cross-Encoder
-    kandidat_fusion = [chunk for chunk, _ in hasil_gabungan[: max(k_kandidat, k_final * 2)]]
+    # Ambil pool kandidat hasil fusion untuk dinilai ulang oleh Cross-Encoder (deduplikasi awal)
+    kandidat_fusion = []
+    for item in hasil_gabungan:
+        chunk = item[0] if isinstance(item, tuple) else item
+        if not _apakah_duplikat(chunk, kandidat_fusion, ambang_batas=0.75):
+            kandidat_fusion.append(chunk)
+        if len(kandidat_fusion) >= max(k_kandidat, k_final * 3):
+            break
 
     # Reranking Cross-Encoder + Match Threshold filtering
     chunk_terpilih = rerank_dengan_cross_encoder(
@@ -202,4 +261,5 @@ def retrieval_hybrid_dengan_recency(
         k_final=k_final,
     )
     return chunk_terpilih
+
 

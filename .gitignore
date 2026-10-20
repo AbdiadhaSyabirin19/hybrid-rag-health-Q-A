@@ -23,3 +23,12 @@ data/
 # Folder database vektor lokal Qdrant
 qdrant_storage/
 
+# Fine-tuning & model training
+finetuning/
+
+# Log files
+logs/
+*.log
+
+# Hasil Evaluasi
+hasil evaluasi/

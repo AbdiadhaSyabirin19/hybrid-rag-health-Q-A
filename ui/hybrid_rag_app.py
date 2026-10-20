@@ -1,16 +1,24 @@
-"""Streamlit app untuk asisten tanya-jawab kesehatan berbasis RAG.
+"""Streamlit app untuk asisten tanya-jawab kesehatan berbasis Hybrid RAG.
 
 Menampilkan antarmuka chat interaktif yang mengambil jawaban dari
-koleksi artikel kesehatan terpercaya di Qdrant vector database.
+koleksi artikel kesehatan menggunakan pencarian kombinasi Lexical (BM25)
++ Dense Vector (Qdrant) + Recency Reranking + Multi-turn Chat.
 """
 
 import logging
+import sys
+from pathlib import Path
+
+# Memastikan root proyek ada di sys.path agar impor src selalu berhasil
+ROOT_DIR = Path(__file__).resolve().parent.parent
+if str(ROOT_DIR) not in sys.path:
+    sys.path.insert(0, str(ROOT_DIR))
 
 import streamlit as st
 
 from src import config
-from src.basic_rag.rag_chain import cari_artikel_terkait_tambahan, tanya
-from src.basic_rag.schema import HasilRAG, JawabanTerkait
+from src.hybrid_rag.rag_chain import tanya
+from src.hybrid_rag.schema_hybrid import ArtikelSumber, HasilRAG, JawabanTerkait
 
 logger = logging.getLogger(__name__)
 
@@ -19,16 +27,17 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 st.set_page_config(
-    page_title="Tanya Kesehatan (RAG Lokal)",
+    page_title="Tanya Kesehatan (Hybrid RAG Lokal)",
     page_icon="🩺",
     layout="wide",
 )
 
-st.title("🩺 Asisten Tanya-Jawab Kesehatan")
+st.title("🩺 Asisten Tanya-Jawab Kesehatan (Hybrid RAG)")
 st.caption(
-    "Jawaban dihasilkan dari koleksi berita kesehatan terpercaya. "
+    "Jawaban dihasilkan dari pencarian kombinasi BM25, Qdrant, Recency, & Cross-Encoder Reranking. "
     "Bukan pengganti konsultasi dengan tenaga medis profesional."
 )
+
 
 
 # ---------------------------------------------------------------------------
@@ -36,53 +45,37 @@ st.caption(
 # ---------------------------------------------------------------------------
 
 
+def render_sitasi(sitasi_list: list[ArtikelSumber]) -> None:
+    """Menampilkan daftar sitasi sumber artikel asli."""
+    if not sitasi_list:
+        return
+    st.markdown("##### 📌 Sumber Sitasi Artikel:")
+    for s in sitasi_list:
+        url_text = f"[{s.judul}]({s.url})" if s.url else s.judul
+        st.markdown(
+            f"**[{s.nomor}]** {url_text}  \n"
+            f"*{s.sumber} • {s.tanggal_publikasi}*"
+        )
+
+
 def _render_jawaban_terkait(
     jawaban_terkait: list[JawabanTerkait],
-    artikel_tambahan: list[dict],
 ) -> None:
-    """Menampilkan kartu jawaban per-artikel dan daftar artikel tambahan.
-
-    Args:
-        jawaban_terkait: List objek JawabanTerkait dari hasil RAG.
-        artikel_tambahan: List dict artikel tambahan (judul, url, sumber).
-    """
+    """Menampilkan daftar referensi artikel terkait secara ringkas."""
     if not jawaban_terkait:
         return
 
-    st.markdown("#### 🔗 Jawaban & Artikel Terkait")
-    jumlah_kolom = min(len(jawaban_terkait), 3) or 1
-    kolom = st.columns(jumlah_kolom)
+    st.markdown("##### 🔗 Referensi & Artikel Terkait:")
+    for jt in jawaban_terkait:
+        if jt.url:
+            st.markdown(f"- [{jt.judul_artikel}]({jt.url})")
+        else:
+            st.markdown(f"- {jt.judul_artikel}")
 
-    for i, jt in enumerate(jawaban_terkait):
-        with kolom[i % jumlah_kolom]:
-            with st.container(border=True):
-                st.markdown(f"**{jt.judul_artikel}**")
-                st.caption(f"{jt.sumber} · {jt.tanggal_publikasi}")
-                st.write(jt.ringkasan)
-                if jt.url:
-                    st.link_button(
-                        "Baca artikel lengkap",
-                        jt.url,
-                        use_container_width=True,
-                    )
-
-    if artikel_tambahan:
-        with st.expander("📚 Topik lain yang mungkin relevan"):
-            for a in artikel_tambahan:
-                if a.get("url"):
-                    st.markdown(
-                        f"- [{a['judul']}]({a['url']}) — *{a['sumber']}*"
-                    )
-                else:
-                    st.markdown(f"- {a['judul']} — *{a['sumber']}*")
 
 
 def _cek_koneksi_komponen() -> tuple[bool, bool]:
-    """Melakukan pengecekan koneksi ke Qdrant dan Ollama.
-
-    Returns:
-        Tuple (qdrant_ok, ollama_ok).
-    """
+    """Melakukan pengecekan koneksi ke Qdrant dan Ollama."""
     qdrant_ok = False
     ollama_ok = False
 
@@ -112,11 +105,8 @@ def _cek_koneksi_komponen() -> tuple[bool, bool]:
 # ---------------------------------------------------------------------------
 
 with st.sidebar:
-    st.header("⚙️ Pengaturan")
-    jumlah_terkait = st.slider("Jumlah artikel terkait tambahan", 0, 5, 3)
-    st.divider()
+    st.header("**Status Komponen**")
 
-    st.markdown("**Status Komponen**")
     qdrant_ok, ollama_ok = _cek_koneksi_komponen()
     if qdrant_ok:
         st.success(f"Qdrant: terhubung ({config.QDRANT_HOST}:{config.QDRANT_PORT})")
@@ -141,12 +131,18 @@ if "riwayat" not in st.session_state:
 
 for pesan in st.session_state.riwayat:
     with st.chat_message(pesan["role"]):
+        if pesan.get("pertanyaan_dipahami"):
+            st.caption(f"💡 Pertanyaan dipahami sebagai: \"{pesan['pertanyaan_dipahami']}\"")
+
         st.markdown(pesan["content"])
-        if pesan["role"] == "assistant" and pesan.get("jawaban_terkait"):
-            _render_jawaban_terkait(
-                pesan["jawaban_terkait"],
-                pesan.get("artikel_tambahan", []),
-            )
+
+        if pesan["role"] == "assistant":
+            if pesan.get("sitasi_terpakai"):
+                render_sitasi(pesan["sitasi_terpakai"])
+            if pesan.get("jawaban_terkait"):
+                _render_jawaban_terkait(
+                    pesan["jawaban_terkait"],
+                )
 
 # ---------------------------------------------------------------------------
 # Input pertanyaan baru
@@ -155,6 +151,9 @@ for pesan in st.session_state.riwayat:
 pertanyaan_baru = st.chat_input("Ketik pertanyaan kesehatan Anda di sini...")
 
 if pertanyaan_baru:
+    # Snapshot riwayat percakapan sebelumnya untuk context rewriting
+    riwayat_sebelumnya = list(st.session_state.riwayat)
+
     # Tampilkan pesan user
     st.session_state.riwayat.append({"role": "user", "content": pertanyaan_baru})
     with st.chat_message("user"):
@@ -162,9 +161,10 @@ if pertanyaan_baru:
 
     # Proses dan tampilkan jawaban assistant
     with st.chat_message("assistant"):
-        with st.spinner("Mencari artikel relevan & menyusun jawaban..."):
+        with st.spinner("Mencari artikel relevan (BM25 + Qdrant + RRF + Cross-Encoder) & menyusun jawaban..."):
+
             try:
-                hasil = tanya(pertanyaan_baru)
+                hasil = tanya(pertanyaan_baru, riwayat=riwayat_sebelumnya)
             except Exception as e:
                 st.error(
                     "Terjadi kesalahan saat memproses pertanyaan. "
@@ -172,6 +172,9 @@ if pertanyaan_baru:
                 )
                 logger.error("Error saat memproses pertanyaan: %s", e)
                 st.stop()
+
+            if hasil.pertanyaan_dipahami:
+                st.caption(f"💡 Pertanyaan lanjutan dipahami sebagai: \"{hasil.pertanyaan_dipahami}\"")
 
             # Peringatan rujukan medis
             if hasil.perlu_rujukan_medis:
@@ -183,23 +186,16 @@ if pertanyaan_baru:
 
             st.markdown(hasil.jawaban_utama)
 
-            # Cari artikel tambahan jika diminta
-            artikel_tambahan: list[dict] = []
-            if jumlah_terkait > 0:
-                id_tampil = {jt.judul_artikel for jt in hasil.jawaban_terkait}
-                try:
-                    artikel_tambahan = cari_artikel_terkait_tambahan(
-                        hasil, id_tampil, k=jumlah_terkait,
-                    )
-                except Exception as e:
-                    logger.warning("Gagal mencari artikel tambahan: %s", e)
+            if hasil.sitasi_terpakai:
+                render_sitasi(hasil.sitasi_terpakai)
 
-            _render_jawaban_terkait(hasil.jawaban_terkait, artikel_tambahan)
+            _render_jawaban_terkait(hasil.jawaban_terkait)
 
     # Simpan ke riwayat
     st.session_state.riwayat.append({
         "role": "assistant",
         "content": hasil.jawaban_utama,
         "jawaban_terkait": hasil.jawaban_terkait,
-        "artikel_tambahan": artikel_tambahan,
+        "sitasi_terpakai": hasil.sitasi_terpakai,
+        "pertanyaan_dipahami": hasil.pertanyaan_dipahami,
     })

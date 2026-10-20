@@ -45,18 +45,66 @@ def _buat_vector_store() -> QdrantVectorStore:
     )
 
 
-def _dapatkan_retriever(score_threshold: float = 0.75):
+def _dapatkan_retriever(score_threshold: float = config.SCORE_THRESHOLD):
     return _buat_vector_store().as_retriever(
         search_type="similarity_score_threshold",
         search_kwargs={
             "k": config.TOP_K_RETRIEVAL,
-            "score_threshold": score_threshold, # Hanya ambil chunk dengan kemiripan >= 70%
+            "score_threshold": score_threshold, # Hanya ambil chunk dengan kemiripan >= 55%
         },
     )
 
 
+def _hitung_jaccard_similarity(teks1: str, teks2: str) -> float:
+    set1 = set(teks1.lower().split())
+    set2 = set(teks2.lower().split())
+    if not set1 or not set2:
+        return 0.0
+    irisan = len(set1.intersection(set2))
+    gabungan = len(set1.union(set2))
+    return irisan / gabungan if gabungan > 0 else 0.0
+
+
+def _apakah_duplikat(chunk_baru, daftar_terpilih: list, ambang_batas: float = 0.65) -> bool:
+    teks_baru = getattr(chunk_baru, "page_content", "").strip().lower()
+    if not teks_baru:
+        return True
+    for c in daftar_terpilih:
+        teks_lama = getattr(c, "page_content", "").strip().lower()
+        if teks_baru == teks_lama or teks_baru in teks_lama or teks_lama in teks_baru:
+            return True
+        if _hitung_jaccard_similarity(teks_baru, teks_lama) >= ambang_batas:
+            return True
+    return False
+
+
+def dapatkan_dokumen_relevan(
+    pertanyaan: str,
+    score_threshold: float = config.SCORE_THRESHOLD,
+    k: int = config.TOP_K_RETRIEVAL,
+) -> list[Document]:
+    """Mengambil dokumen dari Qdrant dengan threshold dan deduplikasi otomatis."""
+    vs = _buat_vector_store()
+    try:
+        kandidat_dengan_skor = vs.similarity_search_with_score(pertanyaan, k=k * 3)
+        dokumen_terpilih: list[Document] = []
+        for doc, skor in kandidat_dengan_skor:
+            if skor < score_threshold:
+                continue
+            if not _apakah_duplikat(doc, dokumen_terpilih, ambang_batas=0.65):
+                dokumen_terpilih.append(doc)
+            if len(dokumen_terpilih) >= k:
+                break
+        return dokumen_terpilih
+    except Exception as e:
+        logger.warning("Gagal similarity_search_with_score terdeduplikasi: %s. Fallback ke retriever biasa.", e)
+        retriever = _dapatkan_retriever(score_threshold)
+        return retriever.invoke(pertanyaan)
+
+
 @functools.lru_cache(maxsize=2)
 def _dapatkan_llm_terstruktur(gunakan_thinking: bool):
+
     """Mengembalikan instance LLM dengan structured output (di-cache per mode thinking).
 
     Menggunakan ``lru_cache`` agar instance LLM hanya dibuat sekali per
@@ -108,6 +156,9 @@ def kelompokkan_per_artikel(
 ) -> list[dict]:
     """Mengelompokkan chunk retrieval berdasarkan artikel asalnya.
 
+    Hanya artikel yang memiliki URL yang disertakan — artikel tanpa URL
+    dilewati agar tidak menjadi bahan jawaban dan tidak tampil di UI.
+
     Returns:
         List dict berisi metadata artikel dan gabungan teks chunk-nya,
         diurutkan berdasarkan tanggal publikasi terbaru lebih dulu.
@@ -122,6 +173,10 @@ def kelompokkan_per_artikel(
         meta = chunks[0].metadata
         gabungan_teks = "\n".join(c.page_content for c in chunks)
         _, judul, sumber, url, tanggal_publikasi = _dapatkan_metadata_artikel(meta)
+
+        if not url:
+            logger.debug("Melewati artikel tanpa URL: %s", judul)
+            continue
 
         artikel_list.append({
             "artikel_id": artikel_id,
@@ -138,6 +193,7 @@ def kelompokkan_per_artikel(
     except Exception:
         pass
     return artikel_list
+
 
 
 def format_artikel_untuk_prompt(artikel_list: list[dict]) -> str:
@@ -159,18 +215,28 @@ PROMPT_RAG = ChatPromptTemplate.from_messages([
     ("system", (
         "Anda adalah Asisten Informasi Kesehatan AI. Jawab pertanyaan HANYA berdasarkan konteks artikel kesehatan yang diberikan.\n\n"
         "PANDUAN UTAMA:\n"
-        "- Di Luar Domain: Tolak dengan sopan jika pertanyaan bukan tentang kesehatan/medis. Kosongkan `jawaban_terkait` dan set `perlu_rujukan_medis: false`.\n"
+        "- Bahasa: Seluruh jawaban WAJIB menggunakan bahasa Indonesia yang jelas, natural, profesional, dan mudah dipahami. "
+        "Gunakan istilah medis dalam bahasa Indonesia dan sertakan istilah medis aslinya dalam kurung jika diperlukan.\n"
+        "- Di Luar Domain: Tolak dengan sopan jika pertanyaan bukan tentang kesehatan/medis. "
+        "Kosongkan `jawaban_terkait` dan set `perlu_rujukan_medis: false`.\n"
         "- Gejala Berat/Darurat: Sarankan segera ke IGD/faskes terdekat dan set `perlu_rujukan_medis: true`.\n"
-        "- Batasan Medis: Dilarang membuat diagnosis pasti, menjanjikan kesembuhan, atau berasumsi di luar teks. Jika informasi tidak ada di konteks, nyatakan tidak tersedia.\n\n"
+        "- Batasan Medis: Dilarang membuat diagnosis pasti, menjanjikan kesembuhan, atau berasumsi di luar teks. "
+        "Jika informasi tidak ada di konteks, nyatakan bahwa informasi tersebut tidak tersedia dalam basis data pengetahuan kesehatan kami.\n\n"
         "FORMAT OUTPUT:\n"
-        "1. jawaban_utama: Jawaban terpadu hasil sintesis dari artikel terkait beserta sitasi sumber. Jika ada kontradiksi informasi, tuliskan kedua sudut pandang secara objektif.\n"
-        "2. jawaban_terkait: Ringkasan 1-2 kalimat untuk SETIAP artikel yang diberikan beserta ID/judulnya.\n"
+        "1. jawaban_utama: Jawaban terpadu dan naratif yang mengalir secara alami. "
+        "Sintesis informasi dari seluruh konteks artikel secara kohesif. DILARANG KERAS menyebutkan frasa rujukan internal seperti 'Artikel 1', 'Artikel 2', 'Menurut artikel', atau sejenisnya di dalam `jawaban_utama`.\n"
+        "2. jawaban_terkait: Ringkasan 1-2 kalimat untuk SETIAP artikel yang diberikan beserta judul/sumber aslinya.\n"
         "3. perlu_rujukan_medis: true / false."
     )),
+
     ("human", (
-        "Konteks Artikel:\n{artikel_terformat}\n\nPertanyaan: {question}"
+        "Konteks Artikel:\n{artikel_terformat}\n\n"
+        "Pertanyaan: {question}"
     )),
+
 ])
+
+
 
 
 # ---------------------------------------------------------------------------
@@ -194,8 +260,7 @@ def tanya(pertanyaan: str) -> HasilRAG:
         Objek ``HasilRAG`` berisi jawaban utama, jawaban per-artikel,
         dan flag ``perlu_rujukan_medis``.
     """
-    retriever = _dapatkan_retriever()
-    dokumen_relevan = retriever.invoke(pertanyaan)
+    dokumen_relevan = dapatkan_dokumen_relevan(pertanyaan)
 
     if not dokumen_relevan:
         logger.info("Tidak ditemukan dokumen yang memenuhi threshold relevansi.")
@@ -227,56 +292,22 @@ def tanya(pertanyaan: str) -> HasilRAG:
         "artikel_terformat": artikel_terformat,
     })
 
-    # Lengkapi url & sumber jika LLM tidak menyalinnya dengan sempurna,
-    # dengan mencocokkan judul_artikel ke metadata asli (lebih andal)
-    peta_artikel = {a["judul"].strip().lower(): a for a in artikel_list}
-    for jt in hasil.jawaban_terkait:
-        cocok = peta_artikel.get(jt.judul_artikel.strip().lower())
-        if cocok:
-            jt.url = cocok["url"]
-            jt.sumber = cocok["sumber"]
-            jt.tanggal_publikasi = cocok["tanggal_publikasi"]
+    # Bangun jawaban_terkait langsung dari artikel_list metadata asli
+    # agar judul, URL, dan sumber 100% akurat dan tidak hilang karena LLM menyingkat judul
+    hasil.jawaban_terkait = [
+        JawabanTerkait(
+            judul_artikel=a["judul"],
+            ringkasan=a["teks"][:150] + "..." if len(a["teks"]) > 150 else a["teks"],
+            sumber=a["sumber"],
+            url=a["url"],
+            tanggal_publikasi=a["tanggal_publikasi"],
+        )
+        for a in artikel_list
+    ]
 
     return hasil
 
 
-def cari_artikel_terkait_tambahan(
-    hasil: HasilRAG,
-    artikel_sudah_tampil: set[str],
-    k: int = 3,
-) -> list[dict]:
-    """Mencari artikel tambahan yang topiknya berdekatan dengan jawaban utama.
-
-    Melakukan similarity search kedua menggunakan ``jawaban_utama`` sebagai
-    query, lalu memfilter artikel yang sudah ditampilkan.
-
-    Args:
-        hasil: Objek HasilRAG dari fungsi ``tanya()``.
-        artikel_sudah_tampil: Set judul/ID artikel yang sudah ditampilkan.
-        k: Jumlah maksimal artikel tambahan yang dikembalikan.
-
-    Returns:
-        List dict berisi judul, url, dan sumber artikel tambahan.
-    """
-    vs = _buat_vector_store()
-    kandidat = vs.similarity_search(hasil.jawaban_utama, k=k + 5)
-
-    artikel_terkait_tambahan: list[dict] = []
-    id_sudah_ada: set[str] = set()
-    for doc in kandidat:
-        aid, judul, sumber, url, _ = _dapatkan_metadata_artikel(doc.metadata)
-        if aid in artikel_sudah_tampil or aid in id_sudah_ada:
-            continue
-        id_sudah_ada.add(aid)
-        artikel_terkait_tambahan.append({
-            "judul": judul,
-            "url": url,
-            "sumber": sumber,
-        })
-        if len(artikel_terkait_tambahan) >= k:
-            break
-
-    return artikel_terkait_tambahan
 
 
 # ---------------------------------------------------------------------------

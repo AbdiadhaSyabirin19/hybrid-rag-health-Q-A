@@ -92,17 +92,26 @@ def _dapatkan_metadata_artikel(meta: dict) -> tuple[str, str, str, str, str]:
 
 
 def kelompokkan_dan_beri_nomor(dokumen_list: list[Document]) -> list[dict]:
-    """Mengelompokkan chunk retrieval per artikel dan menambahkan nomor urut sitasi [1], [2], dst."""
+    """Mengelompokkan chunk retrieval per artikel dan menambahkan nomor urut sitasi [1], [2], dst.
+
+    Hanya artikel yang memiliki URL yang disertakan — artikel tanpa URL
+    dilewati agar tidak menjadi bahan jawaban dan tidak tampil di UI.
+    """
     kelompok: dict[str, list[Document]] = defaultdict(list)
     for doc in dokumen_list:
         artikel_id, *_ = _dapatkan_metadata_artikel(doc.metadata)
         kelompok[artikel_id].append(doc)
 
     artikel_list: list[dict] = []
-    for nomor, (artikel_id, chunks) in enumerate(kelompok.items(), start=1):
+    nomor = 1
+    for artikel_id, chunks in kelompok.items():
         meta = chunks[0].metadata
         gabungan_teks = "\n".join(c.page_content for c in chunks)
         _, judul, sumber, url, tanggal_publikasi = _dapatkan_metadata_artikel(meta)
+
+        if not url:
+            logger.debug("Melewati artikel tanpa URL: %s", judul)
+            continue
 
         artikel_list.append({
             "nomor": nomor,
@@ -113,7 +122,9 @@ def kelompokkan_dan_beri_nomor(dokumen_list: list[Document]) -> list[dict]:
             "tanggal_publikasi": tanggal_publikasi,
             "teks": gabungan_teks,
         })
+        nomor += 1
     return artikel_list
+
 
 
 def format_artikel_untuk_prompt(artikel_list: list[dict]) -> str:
@@ -175,19 +186,24 @@ def tulis_ulang_pertanyaan_standalone(pertanyaan: str, riwayat: list[dict]) -> s
 
 
 PROMPT_RAG_HYBRID = ChatPromptTemplate.from_messages([
+
     ("system", (
-        "Anda adalah Asisten Informasi Kesehatan AI.\n\n"
-        "ATURAN UTAMA:\n"
-        "1. Jawab HANYA berdasarkan konteks artikel kesehatan yang diberikan.\n"
-        "2. WAJIB menyitasi setiap klaim dengan nomor artikel format [1], [2], dst. "
-        "tepat setelah klaim tersebut.\n"
-        "3. Jika pertanyaan di luar domain kesehatan/medis, tolak dengan sopan dan set `perlu_rujukan_medis: false`.\n"
-        "4. Jika mengindikasikan kondisi berat/darurat, set `perlu_rujukan_medis: true`."
+        "Anda adalah Asisten Informasi Kesehatan AI yang profesional dan berbasis bukti.\n\n"
+
+        "PEDOMAN MENJAWAB:\n"
+        "1. Jawab pertanyaan HANYA berdasarkan konteks artikel yang tersedia. Tuliskan jawaban yang padat, akurat, dan mengalir secara alami dalam bahasa Indonesia.\n"
+        "2. Berikan sitasi bernomor [1], [2], dst. pada akhir kalimat fakta yang diambil dari artikel terkait.\n"
+        "3. Hindari kalimat berulang dan JANGAN menuliskan teks metadata atau field schema (seperti 'perlu_rujukan_medis' atau 'jawaban_utama') ke dalam teks jawaban.\n"
+        "4. Jika informasi tidak tersedia dalam konteks artikel, sampaikan dengan jujur bahwa informasi belum tersedia dalam artikel rujukan.\n"
+        "5. Jangan memberikan diagnosis mutlak. Jika kondisi darurat, sarankan mencari bantuan medis atau faskes terdekat."
     )),
+
     ("human", (
-        "Artikel-artikel yang tersedia (gunakan nomornya untuk sitasi):\n{artikel_terformat}\n\n"
+        "Artikel yang tersedia:\n"
+        "{artikel_terformat}\n\n"
         "Pertanyaan: {question}"
     )),
+
 ])
 
 
@@ -236,6 +252,7 @@ def tanya(pertanyaan: str, riwayat: list[dict] | None = None) -> HasilRAG:
         vector_store=vs,
         bm25=bm25,
         chunks_bm25=chunks_bm25,
+        k_final=config.TOP_K_RETRIEVAL,
     )
 
     if not dokumen_relevan:
@@ -288,39 +305,6 @@ def tanya(pertanyaan: str, riwayat: list[dict] | None = None) -> HasilRAG:
             if pertanyaan_untuk_retrieval.strip() != pertanyaan.strip()
             else None
         ),
+        konteks_retrieval=[doc.page_content for doc in dokumen_relevan],
     )
 
-
-def cari_artikel_terkait_tambahan(
-    hasil: HasilRAG,
-    artikel_sudah_tampil: set[str],
-    k: int = 3,
-) -> list[dict]:
-    """Mencari artikel tambahan yang topiknya berdekatan dengan jawaban utama."""
-    vs = _buat_vector_store()
-    try:
-        kandidat = vs.similarity_search(hasil.jawaban_utama, k=k + 5)
-    except Exception:
-        return []
-
-    artikel_terkait_tambahan: list[dict] = []
-    id_sudah_ada: set[str] = set()
-    for doc in kandidat:
-        meta = doc.metadata
-        aid = meta.get("artikel_id", meta.get("url", meta.get("judul", "")))
-        judul = meta.get("judul", "")
-        url = meta.get("url", "")
-        sumber = meta.get("sumber", "KlikDokter")
-
-        if aid in artikel_sudah_tampil or aid in id_sudah_ada:
-            continue
-        id_sudah_ada.add(aid)
-        artikel_terkait_tambahan.append({
-            "judul": judul,
-            "url": url,
-            "sumber": sumber,
-        })
-        if len(artikel_terkait_tambahan) >= k:
-            break
-
-    return artikel_terkait_tambahan
